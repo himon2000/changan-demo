@@ -1,1 +1,22 @@
-{"name":"changan-demo","version":"3.0.0","private":true,"description":"长安未醒：两位真人、固定角色、独立调查与共同验证","scripts":{"start":"node server.cjs","test":"node --test tests/multiplayer.test.cjs"},"engines":{"node":">=18"}}
+{
+  "name": "changan-demo",
+  "version": "3.0.0",
+  "private": true,
+  "description": "长安未醒：两位真人、固定角色、独立调查与共同验证",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test tests/multiplayer.test.cjs",
+    "build": "node cloud/build.mjs",
+    "test:cloud": "node --test tests/cloud.test.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@noble/hashes": "^2.4.0",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "esbuild": "^0.28.2",
+    "sharp": "^0.35.4"
+  }
+}
