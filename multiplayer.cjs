@@ -2,9 +2,11 @@
 const Game=require('./core.js'),D=require('./data.js'),crypto=require('node:crypto');
 const SHARED=['stats','flags','evidence','observations'];
 const JOINT=new Set(['feast','reunion','waterEntry','alarm','afterWater','beforeChase','afterChase']);
+const clone=x=>JSON.parse(JSON.stringify(x));
+const CHECKPOINTS={feast:'画舫分工',witness:'船娘问询',workshop:'旧图传信',alarm:'水舱救援',afterWater:'救人与追凶',beforeChase:'断桥协作'};
 const hash=t=>crypto.createHash('sha256').update(t).digest('hex');
 class Room{
- constructor(id,saved){this.id=id;this.games={};this.members={};this.arrived={};this.decisions={};this.ready={};this.qresults={};this.qstarts={};this.votes={};this.revision=0;this.updated=Date.now();this.shared=Object.fromEntries(SHARED.map(k=>[k,new Game().s[k]]));if(saved){Object.assign(this,saved);for(const r of Object.keys(this.games))this.games[r]=new Game(this.games[r]);}this.bind();}
+ constructor(id,saved){this.id=id;this.games={};this.members={};this.arrived={};this.decisions={};this.ready={};this.qresults={};this.qstarts={};this.votes={};this.checkpoints=[];this.loadRequest=null;this.timeline=0;this.revision=0;this.updated=Date.now();this.shared=Object.fromEntries(SHARED.map(k=>[k,new Game().s[k]]));if(saved){Object.assign(this,saved);for(const r of Object.keys(this.games))this.games[r]=new Game(this.games[r]);}this.bind();}
  bind(){for(const g of Object.values(this.games))for(const k of SHARED)g.s[k]=this.shared[k];}
  join(role){if(!['A','B'].includes(role)||this.members[role])throw Error('这个身份已有人选择，请使用另一个身份。');const token=crypto.randomBytes(32).toString('hex');this.members[role]={hash:hash(token)};this.games[role]=new Game();this.bind();this.games[role].s.role=role;this.games[role].s.lead=role;this.games[role].s.view='lobby';if(this.members.A&&this.members.B){this.games.A.enter('introA');this.games.B.enter('introB');}this.touch();return token;}
  auth(token){return Object.keys(this.members).find(r=>this.members[r].hash===hash(token||''));}
@@ -19,8 +21,22 @@ class Room{
  if(event==='afterWater'){if(!this.shared.flags.saved)a.apply({stats:{TRUTH:3}});this.enterBoth('beforeChase');}
  if(event==='afterChase')for(const g of Object.values(this.games)){g.s.view='deduce';g.s.phase='deduction';}
  }
- command(role,msg){const g=this.games[role],s=g.s,other=role==='A'?'B':'A';if(!g||!this.games[other])throw Error('等待另一位玩家加入。');if(s.waiting&&!['match','submit','deduce','setting'].includes(msg.type))throw Error('你已完成这一步，正在等待搭档。');
+ captureCheckpoints(){
+ for(const [role,g]of Object.entries(this.games)){
+ const s=g.s,label=CHECKPOINTS[s.event],line=s.view==='dialog'&&g.currentLine(),id=s.event+':'+s.index;
+ if(!label||!line?.choices||line.who!==role||this.decisions[id]!==undefined||this.checkpoints.some(c=>c.id===id))continue;
+ const state=clone({shared:this.shared,games:Object.fromEntries(Object.entries(this.games).map(([r,x])=>[r,x.s])),arrived:this.arrived,decisions:this.decisions,ready:this.ready,qresults:this.qresults,qstarts:this.qstarts,votes:this.votes});
+ if(JOINT.has(s.event)){state.arrived={};for(const x of Object.values(state.games)){x.view='dialog';x.event=s.event;x.index=s.index;delete x.waiting;}}
+ this.checkpoints.push({id,label:label+' · '+(role==='A'?'巡捕':'幻术师'),time:Date.now(),state});
+ }
+ }
+ loadCheckpoint(id){const index=this.checkpoints.findIndex(c=>c.id===id);if(index<0)throw Error('存档点不存在。');const cp=this.checkpoints[index],prefs=Object.fromEntries(Object.entries(this.games).map(([r,g])=>[r,{debug:g.s.debug,slowQte:g.s.slowQte}]));Object.assign(this,clone(cp.state));for(const [r,state]of Object.entries(this.games))this.games[r]=new Game({...state,...prefs[r]});this.bind();this.checkpoints=this.checkpoints.slice(0,index+1);this.loadRequest=null;this.timeline++;}
+ command(role,msg){const g=this.games[role],s=g.s,other=role==='A'?'B':'A';if(!g||!this.games[other])throw Error('等待另一位玩家加入。');if(msg.timeline!==undefined&&msg.timeline!==this.timeline)throw Error('进度已回到存档点，请重新操作。');if(this.loadRequest&&!['loadAgree','loadCancel','setting'].includes(msg.type))throw Error('请先处理共同读档请求。');if(s.waiting&&!['loadRequest','loadAgree','loadCancel','match','submit','deduce','setting'].includes(msg.type))throw Error('你已完成这一步，正在等待搭档。');
  switch(msg.type){
+ case 'loadRequest':{if(Object.values(this.games).some(x=>x.s.view==='qte'))throw Error('请先完成本段动作，再读取存档。');if(!this.checkpoints.some(c=>c.id===msg.id))throw Error('存档点不存在。');this.loadRequest={id:msg.id,by:role};break;}
+ case 'loadAgree':{if(!this.loadRequest||this.loadRequest.by===role)throw Error('需要另一位玩家确认。');this.loadCheckpoint(this.loadRequest.id);break;}
+ case 'loadCancel':this.loadRequest=null;break;
+
  case 'location':{
  if(s.view!=='map'||!D.locations.some(l=>l.id===msg.id))throw Error('现在不能前往那里。');
  if(msg.id==='boat'&&(!s.flags.murder||(g.readyToMeet()&&!s.flags.validated))){const e=s.flags.murder?'reunion':'feast';if(this.wait(role,'board:'+e))this.enterBoth(e);break;}g.location(msg.id);break;}
@@ -47,9 +63,9 @@ class Room{
  if(s.view!=='deduce'||!Object.values(s.deduction).every(Boolean))throw Error('请完成三项判断。');this.votes[role]={...s.deduction};s.waiting='deduction';if(this.votes.A&&this.votes.B){if(JSON.stringify(this.votes.A)!==JSON.stringify(this.votes.B)){for(const x of Object.values(this.games)){delete x.s.waiting;x.s.notice='双方判断不同，请结合搭档提交的判断再核对。';}}else{this.games.A.submit();for(const x of Object.values(this.games)){delete x.s.waiting;x.s.view='end';x.s.phase='end';}}}break;}
  case 'setting':if(['debug','slowQte'].includes(msg.key))s[msg.key]=!!msg.value;break;
  default:throw Error('不支持的操作。');}
- this.touch();return this.snapshot(role);
+ this.captureCheckpoints();this.touch();return this.snapshot(role);
  }
- snapshot(role){const g=this.games[role],s=JSON.parse(JSON.stringify(g.s)),other=role==='A'?'B':'A';if(!s.flags.validated){s.observations[other]=[];s.evidence=[...s.observations[role]];}s.match={A:this.votes.A||null,B:this.votes.B||null};s.net={room:this.id,revision:this.revision,joined:!!this.members[other],partnerRole:other,ready:this.ready,decision:this.decisions[s.event+':'+s.index],partnerCount:this.shared.observations[other].length,partnerVote:s.view==='deduce'?this.votes[other]:null};return s;}
+ snapshot(role){const g=this.games[role],s=JSON.parse(JSON.stringify(g.s)),other=role==='A'?'B':'A';if(!s.flags.validated){s.observations[other]=[];s.evidence=[...s.observations[role]];}s.match={A:this.votes.A||null,B:this.votes.B||null};s.net={checkpoints:this.checkpoints.map(({id,label,time})=>({id,label,time})),loadRequest:this.loadRequest,timeline:this.timeline,room:this.id,revision:this.revision,joined:!!this.members[other],partnerRole:other,ready:this.ready,decision:this.decisions[s.event+':'+s.index],partnerCount:this.shared.observations[other].length,partnerVote:s.view==='deduce'?this.votes[other]:null};return s;}
  serialize(){return {...this,games:Object.fromEntries(Object.entries(this.games).map(([r,g])=>[r,g.s]))};}
 }
 module.exports={Room};

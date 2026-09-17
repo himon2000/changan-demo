@@ -54,3 +54,18 @@ test('illusionist chooses first; constable route is guarded by plan and actual t
   r.command('A',{type:'next',choice:route});assert.equal(r.shared.flags.chaseRoute,['light','rope','shore'][route]);
  }
 });
+
+test('共同存档保存双方状态，双人确认后回退并拒绝旧操作',()=>{
+ const r=new Room('SAV123'),a=r.join('A'),b=r.join('B');r.enterBoth('beforeChase');
+ r.command('B',{type:'next'});const cp=r.checkpoints[0];assert.equal(cp.id,'beforeChase:1');
+ const trust=r.shared.stats.TA;r.command('B',{type:'next',choice:0});assert.equal(r.shared.flags.chasePlan,'light');
+ const disk=new Room(r.id,JSON.parse(JSON.stringify(r.serialize())));assert.equal(disk.auth(a),'A');assert.equal(disk.auth(b),'B');
+ disk.command('A',{type:'loadRequest',id:cp.id});assert.throws(()=>disk.command('A',{type:'loadAgree'}),/另一位/);assert.throws(()=>disk.command('B',{type:'next'}),/读档/);
+ disk.command('B',{type:'loadCancel'});assert.equal(disk.loadRequest,null);
+ disk.command('A',{type:'loadRequest',id:cp.id});disk.command('B',{type:'loadAgree'});
+ assert.equal(disk.shared.stats.TA,trust);assert.equal(disk.shared.flags.chasePlan,undefined);assert.equal(disk.games.A.s.index,1);assert.equal(disk.games.B.s.index,1);assert.equal(disk.auth(a),'A');assert.equal(disk.auth(b),'B');assert.equal(disk.timeline,1);
+ assert.throws(()=>disk.command('B',{type:'next',choice:1,timeline:0}),/重新操作/);
+ disk.command('B',{type:'next',choice:1,timeline:1});assert.equal(disk.shared.flags.chasePlan,'rope');
+ disk.command('A',{type:'next',timeline:1});assert.equal(disk.games.A.choiceLock(disk.games.A.currentLine().choices[1]),'');
+ assert.ok(!('state' in disk.snapshot('A').net.checkpoints[0]));assert.equal(disk.games.A.s.stats,disk.games.B.s.stats);
+});
