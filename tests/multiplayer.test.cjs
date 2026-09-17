@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 function play(choice=0,pass=true){
  const r=new Room('ABC123'),a=r.join('A'),b=r.join('B');assert.equal(r.auth(a),'A');assert.equal(r.auth(b),'B');assert.throws(()=>r.join('A'));
  const cmd=(role,type,extra={})=>r.command(role,{type,...extra});
- function drain(){for(let rounds=0;rounds<150;rounds++){let changed=false;for(const role of ['A','B']){const g=r.games[role];if(g.s.view!=='dialog'||g.s.waiting)continue;const l=g.currentLine(),owner=l.choices&&['A','B'].includes(l.who)?l.who:role;if(l.choices&&owner!==role&&r.decisions[g.s.event+':'+g.s.index]===undefined)continue;cmd(role,'next',{choice:Math.min(choice,(l.choices?.length||1)-1)});changed=true;}if(!changed)return;}assert.fail('dialog deadlock');}
+ function drain(){for(let rounds=0;rounds<150;rounds++){let changed=false;for(const role of ['A','B']){const g=r.games[role];if(g.s.view!=='dialog'||g.s.waiting)continue;const l=g.currentLine(),owner=l.choices&&['A','B'].includes(l.who)?l.who:role;if(l.choices&&owner!==role&&r.decisions[g.s.event+':'+g.s.index]===undefined)continue;let pick=Math.min(choice,(l.choices?.length||1)-1);if(l.choices&&g.choiceLock(l.choices[pick]))pick=l.choices.findIndex(c=>!g.choiceLock(c));cmd(role,'next',{choice:pick});changed=true;}if(!changed)return;}assert.fail('dialog deadlock');}
  function find(role,id){const c=D.clues[id];cmd(role,'collect',{x:c.x,y:c.y});}
  drain();cmd('A','location',{id:'boat'});assert.ok(r.games.A.s.waiting);assert.equal(r.games.B.s.view,'map');cmd('B','location',{id:'boat'});
  // Nobody may make the other player's decision.
@@ -41,4 +41,16 @@ test('all network page states render, with only owned evidence choices and no ro
  const room=play(),g=new Game(room.snapshot('A'));
  for(const view of ['start','lobby','map','dialog','investigate','match','qteReady','qte','deduce','end']){delete g.s.waiting;g.s.view=view;g.s.net=room.snapshot('A').net;if(view==='dialog')g.enter('witness');if(view==='investigate')g.s.scene='cabin';if(view.startsWith('qte'))g.s.qte={type:'water',step:0,success:0,deadline:Date.now()+6500};context.testUI.set(g);context.testUI.render();assert.ok(app.innerHTML.includes('<main'));assert.ok(!app.innerHTML.includes('undefined'),view);assert.ok(!app.innerHTML.includes('data-action="switch"'));if(view==='map')assert.equal((app.innerHTML.match(/data-location=/g)||[]).length,12);if(view==='match')assert.ok(!app.innerHTML.includes('data-match-role="B"'));}
  for(const modal of ['settings','help','progress','notebook']){context.testUI.modal(modal);context.testUI.render();assert.ok(app.innerHTML.includes('role="dialog"'));}context.testUI.modal(null);g.s.waiting='board:feast';context.testUI.render();assert.match(app.innerHTML,/留一盏灯/);
+});
+test('illusionist chooses first; constable route is guarded by plan and actual trust',()=>{
+ for(const [plan,trust,route] of [[0,55,0],[1,40,1],[0,54,2]]){
+  const r=new Room('BRANCH');r.join('A');r.join('B');r.shared.stats.TA=trust;r.enterBoth('beforeChase');
+  for(const role of ['A','B'])r.command(role,{type:'next',choice:0});
+  assert.throws(()=>r.command('A',{type:'next',choice:plan}),/搭档/);
+  r.command('B',{type:'next',choice:plan});r.command('A',{type:'next',choice:0});
+  const g=r.games.A,choices=g.currentLine().choices;
+  assert.equal(g.choiceLock(choices[route]),'');
+  const wrong=route===0?1:0;assert.ok(g.choiceLock(choices[wrong]));assert.throws(()=>r.command('A',{type:'next',choice:wrong}),/未满足/);
+  r.command('A',{type:'next',choice:route});assert.equal(r.shared.flags.chaseRoute,['light','rope','shore'][route]);
+ }
 });

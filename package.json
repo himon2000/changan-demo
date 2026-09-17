@@ -2,7 +2,7 @@
   "name": "changan-demo",
   "version": "3.0.0",
   "private": true,
-  "description": "长安未醒：两位真人、固定角色、独立调查与共同验证",
+  "description": "未·央：两位真人、固定角色、独立调查与共同验证",
   "scripts": {
     "start": "node server.cjs",
     "test": "node --test tests/multiplayer.test.cjs",

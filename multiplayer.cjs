@@ -26,7 +26,7 @@ class Room{
  if(msg.id==='boat'&&(!s.flags.murder||(g.readyToMeet()&&!s.flags.validated))){const e=s.flags.murder?'reunion':'feast';if(this.wait(role,'board:'+e))this.enterBoth(e);break;}g.location(msg.id);break;}
  case 'next':{
  if(s.view!=='dialog')throw Error('当前没有对话。');const l=g.currentLine(),key=s.event+':'+s.index;
- if(l.choices){const owner=['A','B'].includes(l.who)?l.who:role;if(owner!==role){if(!(key in this.decisions))throw Error('这项决定由搭档作出。');}else{if(!Number.isInteger(msg.choice)||!l.choices[msg.choice])throw Error('无效选择。');if(!(key in this.decisions)){g.apply(l.choices[msg.choice].effects);if(JOINT.has(s.event))this.decisions[key]=msg.choice;}}}
+ if(l.choices){const owner=['A','B'].includes(l.who)?l.who:role;if(owner!==role){if(!(key in this.decisions))throw Error('这项决定由搭档作出。');}else{if(!Number.isInteger(msg.choice)||!l.choices[msg.choice])throw Error('无效选择。');if(!(key in this.decisions)){const locked=g.choiceLock(l.choices[msg.choice]);if(locked)throw Error(locked);g.apply(l.choices[msg.choice].effects);if(JOINT.has(s.event))this.decisions[key]=msg.choice;}}}
  s.index++;if(s.index>=g.lines().length){if(JOINT.has(s.event))this.finishJoint(role,s.event);else g.finishEvent();}break;}
  case 'collect':{
  if(s.view!=='investigate')throw Error('请先进入调查场景。');const id=Game.hitTest(s.scene,msg.x,msg.y);if(!id)throw Error('这里没有新的发现。');g.collect(id);break;}
