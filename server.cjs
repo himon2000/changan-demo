@@ -33,7 +33,7 @@ function createServer({storeDir=path.join(__dirname,'.rooms')}={}){
  }
  if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);return res.end();}
  const rel=decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname);
- if(!/^\/(index\.html|style\.css|script\.js|data\.js|core\.js|layers\.js|assets\/[a-zA-Z0-9_./-]+)$/.test(rel)||rel.includes('..')){res.writeHead(404);return res.end();}
+ if(!/^\/(index\.html|style\.css|script\.js|data\.js|campaign\.js|campaign-ui\.js|core\.js|layers\.js|assets\/[a-zA-Z0-9_./-]+)$/.test(rel)||rel.includes('..')){res.writeHead(404);return res.end();}
  const file=path.join(__dirname,rel);if(!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);return res.end();}
  const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.webp':'image/webp','.json':'application/json'};
  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});if(req.method==='HEAD')res.end();else fs.createReadStream(file).pipe(res);

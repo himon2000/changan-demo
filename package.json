@@ -5,7 +5,7 @@
   "description": "未·央：两位真人、固定角色、独立调查与共同验证",
   "scripts": {
     "start": "node server.cjs",
-    "test": "node --test tests/multiplayer.test.cjs",
+    "test": "node --test tests/multiplayer.test.cjs tests/campaign.test.cjs",
     "build": "node cloud/build.mjs",
     "test:cloud": "node --test tests/cloud.test.cjs"
   },

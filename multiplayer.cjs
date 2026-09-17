@@ -1,19 +1,20 @@
 'use strict';
 const Game=require('./core.js'),D=require('./data.js'),crypto=require('node:crypto');
-const SHARED=['stats','flags','evidence','observations'];
-const JOINT=new Set(['feast','reunion','waterEntry','alarm','afterWater','beforeChase','afterChase']);
+const P=require('./campaign.js'),CR=require('./campaign-room.cjs');
+const SHARED=['stats','flags','evidence','observations','campaign'];
+const JOINT=new Set(['feast','reunion','waterEntry','alarm','afterWater','beforeChase','afterChase','meeting','mirrorChoice','mirrorAfter','cIntro','cJoint','cResolution','qujiangReflection','finalDescent']);
 const clone=x=>JSON.parse(JSON.stringify(x));
 const CHECKPOINTS={feast:'画舫分工',witness:'船娘问询',workshop:'旧图传信',alarm:'水舱救援',afterWater:'救人与追凶',beforeChase:'断桥协作'};
 const hash=t=>crypto.createHash('sha256').update(t).digest('hex');
 class Room{
- constructor(id,saved){this.id=id;this.games={};this.members={};this.arrived={};this.decisions={};this.ready={};this.qresults={};this.qstarts={};this.votes={};this.checkpoints=[];this.loadRequest=null;this.timeline=0;this.revision=0;this.updated=Date.now();this.shared=Object.fromEntries(SHARED.map(k=>[k,new Game().s[k]]));if(saved){Object.assign(this,saved);for(const r of Object.keys(this.games))this.games[r]=new Game(this.games[r]);}this.bind();}
+ constructor(id,saved){this.id=id;this.games={};this.members={};this.arrived={};this.decisions={};this.ready={};this.qresults={};this.qstarts={};this.votes={};this.checkpoints=[];this.loadRequest=null;this.timeline=0;this.revision=0;this.updated=Date.now();this.shared=Object.fromEntries(SHARED.map(k=>[k,new Game().s[k]]));if(saved){Object.assign(this,saved);if(!this.shared.campaign)this.shared.campaign={...P.initial(),chapter:'qujiang'};for(const r of Object.keys(this.games))this.games[r]=new Game(this.games[r]);}this.bind();}
  bind(){for(const g of Object.values(this.games))for(const k of SHARED)g.s[k]=this.shared[k];}
- join(role){if(!['A','B'].includes(role)||this.members[role])throw Error('这个身份已有人选择，请使用另一个身份。');const token=crypto.randomBytes(32).toString('hex');this.members[role]={hash:hash(token)};this.games[role]=new Game();this.bind();this.games[role].s.role=role;this.games[role].s.lead=role;this.games[role].s.view='lobby';if(this.members.A&&this.members.B){this.games.A.enter('introA');this.games.B.enter('introB');}this.touch();return token;}
+ join(role){if(!['A','B'].includes(role)||this.members[role])throw Error('这个身份已有人选择，请使用另一个身份。');const token=crypto.randomBytes(32).toString('hex');this.members[role]={hash:hash(token)};this.games[role]=new Game();this.bind();this.games[role].s.role=role;this.games[role].s.lead=role;this.games[role].s.view='lobby';if(this.members.A&&this.members.B){this.games.A.enter('prologueA');this.games.B.enter('prologueB');}this.touch();return token;}
  auth(token){return Object.keys(this.members).find(r=>this.members[r].hash===hash(token||''));}
  touch(){this.revision++;this.updated=Date.now();}
- enterBoth(event){this.arrived={};for(const g of Object.values(this.games)){delete g.s.waiting;g.enter(event);}}
+ enterBoth(event){this.arrived={};this.decisions={};for(const g of Object.values(this.games)){delete g.s.waiting;g.enter(event);}}
  wait(role,key){this.arrived[role]=key;this.games[role].s.waiting=key;return this.arrived.A===key&&this.arrived.B===key;}
- finishJoint(role,event){if(!this.wait(role,event))return;for(const g of Object.values(this.games))delete g.s.waiting;this.arrived={};const a=this.games.A;
+ finishJoint(role,event){if(!this.wait(role,event))return;for(const g of Object.values(this.games))delete g.s.waiting;this.arrived={};const a=this.games.A;if(CR.finish(this,event))return;
  if(event==='feast'){this.shared.flags.murder=true;for(const g of Object.values(this.games)){g.s.phase='investigation';g.map();}}
  if(event==='reunion')for(const g of Object.values(this.games))g.s.view='match';
  if(event==='waterEntry')for(const g of Object.values(this.games)){g.s.view='investigate';g.s.scene='water';}
@@ -23,15 +24,16 @@ class Room{
  }
  captureCheckpoints(){
  for(const [role,g]of Object.entries(this.games)){
- const s=g.s,label=CHECKPOINTS[s.event],line=s.view==='dialog'&&g.currentLine(),id=s.event+':'+s.index;
- if(!label||!line?.choices||line.who!==role||this.decisions[id]!==undefined||this.checkpoints.some(c=>c.id===id))continue;
+ const s=g.s,label=CHECKPOINTS[s.event]||({meeting:'屋顶相遇',mirrorChoice:'东市协作',cJoint:P.current(s).title}[s.event]),line=s.view==='dialog'&&g.currentLine(),id=(s.event==='cJoint'?s.campaign.chapter+':':'')+s.event+':'+s.index;
+ if(!label||!line?.choices||line.who!==role||this.decisions[s.event+':'+s.index]!==undefined||this.checkpoints.some(c=>c.id===id))continue;
  const state=clone({shared:this.shared,games:Object.fromEntries(Object.entries(this.games).map(([r,x])=>[r,x.s])),arrived:this.arrived,decisions:this.decisions,ready:this.ready,qresults:this.qresults,qstarts:this.qstarts,votes:this.votes});
  if(JOINT.has(s.event)){state.arrived={};for(const x of Object.values(state.games)){x.view='dialog';x.event=s.event;x.index=s.index;delete x.waiting;}}
  this.checkpoints.push({id,label:label+' · '+(role==='A'?'巡捕':'幻术师'),time:Date.now(),state});
  }
  }
  loadCheckpoint(id){const index=this.checkpoints.findIndex(c=>c.id===id);if(index<0)throw Error('存档点不存在。');const cp=this.checkpoints[index],prefs=Object.fromEntries(Object.entries(this.games).map(([r,g])=>[r,{debug:g.s.debug,slowQte:g.s.slowQte}]));Object.assign(this,clone(cp.state));for(const [r,state]of Object.entries(this.games))this.games[r]=new Game({...state,...prefs[r]});this.bind();this.checkpoints=this.checkpoints.slice(0,index+1);this.loadRequest=null;this.timeline++;}
- command(role,msg){const g=this.games[role],s=g.s,other=role==='A'?'B':'A';if(!g||!this.games[other])throw Error('等待另一位玩家加入。');if(msg.timeline!==undefined&&msg.timeline!==this.timeline)throw Error('进度已回到存档点，请重新操作。');if(this.loadRequest&&!['loadAgree','loadCancel','setting'].includes(msg.type))throw Error('请先处理共同读档请求。');if(s.waiting&&!['loadRequest','loadAgree','loadCancel','match','submit','deduce','setting'].includes(msg.type))throw Error('你已完成这一步，正在等待搭档。');
+ command(role,msg){const g=this.games[role],s=g.s,other=role==='A'?'B':'A';if(!g||!this.games[other])throw Error('等待另一位玩家加入。');if(msg.timeline!==undefined&&msg.timeline!==this.timeline)throw Error('进度已回到存档点，请重新操作。');if(this.loadRequest&&!['loadAgree','loadCancel','setting'].includes(msg.type))throw Error('请先处理共同读档请求。');if(s.waiting&&!['loadRequest','loadAgree','loadCancel','match','submit','deduce','setting','drumConfirm','finalSubmit','chapterVerdict','chapterPuzzle','chapterContinue','chapterMeet'].includes(msg.type))throw Error('你已完成这一步，正在等待搭档。');
+ if(CR.command(this,role,msg)){this.captureCheckpoints();this.touch();return this.snapshot(role);}
  switch(msg.type){
  case 'loadRequest':{if(Object.values(this.games).some(x=>x.s.view==='qte'))throw Error('请先完成本段动作，再读取存档。');if(!this.checkpoints.some(c=>c.id===msg.id))throw Error('存档点不存在。');this.loadRequest={id:msg.id,by:role};break;}
  case 'loadAgree':{if(!this.loadRequest||this.loadRequest.by===role)throw Error('需要另一位玩家确认。');this.loadCheckpoint(this.loadRequest.id);break;}
@@ -56,16 +58,16 @@ class Room{
  case 'qte':{
  if(s.view!=='qte'||msg.step!==s.qte.step)throw Error('动作已判定。');const expected=g.qteSteps()[s.qte.step][1],ok=msg.key===expected&&Date.now()<=s.qte.deadline;if(ok)s.qte.success++;s.qte.step++;
  if(s.qte.step<3)s.qte.deadline=Date.now()+(s.slowQte?11000:6500)+480;
- else{this.qresults[role]=s.qte.success;s.waiting='qte';if(Object.keys(this.qresults).length===2){const pass=this.qresults.A>=2&&this.qresults.B>=2,type=s.qte.type;g.apply({stats:pass?{EVIDENCE:1}:{CHAOS:5},flags:type==='water'?{waterSuccess:pass}:{chaseDone:true,chaseSuccess:pass}});this.enterBoth(type==='water'?'afterWater':'afterChase');for(const x of Object.values(this.games))x.s.qte=null;}}break;}
+ else{this.qresults[role]=s.qte.success;s.waiting='qte';if(Object.keys(this.qresults).length===2){const pass=this.qresults.A>=2&&this.qresults.B>=2,type=s.qte.type;g.apply({stats:pass?{EVIDENCE:1}:{CHAOS:5},flags:type==='mirror'?{mirrorSuccess:pass}:type==='water'?{waterSuccess:pass}:{chaseDone:true,chaseSuccess:pass}});if(type==='mirror')this.shared.flags.mirrorSuccess=pass;this.enterBoth(type==='mirror'?'mirrorAfter':type==='water'?'afterWater':'afterChase');for(const x of Object.values(this.games))x.s.qte=null;}}break;}
  case 'deduce':{
- if(s.view!=='deduce')throw Error('尚未开始推理。');const options={suspect:['host','boatwoman','accident'],method:['mechanism','poison','unknown'],motive:['ledger','poem','unknown']};if(!options[msg.key]?.includes(msg.value))throw Error('无效推理。');if(msg.value==='mechanism'&&!g.precise())throw Error('机关证据不足。');if(msg.key==='motive'&&msg.value==='ledger'&&!s.evidence.includes('ledger'))throw Error('尚未取得账目。');s.deduction[msg.key]=msg.value;delete this.votes[role];delete s.waiting;break;}
+ if(s.view!=='deduce')throw Error('尚未开始推理。');const options={suspect:['host','boatwoman','accident'],method:['mechanism','poison','unknown'],motive:['ledger','poem','unknown']};if(!options[msg.key]?.includes(msg.value))throw Error('无效推理。');if(msg.value==='mechanism'&&!g.precise())throw Error('机关证据不足。');if(msg.key==='motive'&&msg.value==='poem'&&!s.evidence.includes('ledger'))throw Error('尚未取得夹在账页中的异常诗稿。');s.deduction[msg.key]=msg.value;delete this.votes[role];delete s.waiting;break;}
  case 'submit':{
  if(s.view!=='deduce'||!Object.values(s.deduction).every(Boolean))throw Error('请完成三项判断。');this.votes[role]={...s.deduction};s.waiting='deduction';if(this.votes.A&&this.votes.B){if(JSON.stringify(this.votes.A)!==JSON.stringify(this.votes.B)){for(const x of Object.values(this.games)){delete x.s.waiting;x.s.notice='双方判断不同，请结合搭档提交的判断再核对。';}}else{this.games.A.submit();for(const x of Object.values(this.games)){delete x.s.waiting;x.s.view='end';x.s.phase='end';}}}break;}
  case 'setting':if(['debug','slowQte'].includes(msg.key))s[msg.key]=!!msg.value;break;
  default:throw Error('不支持的操作。');}
  this.captureCheckpoints();this.touch();return this.snapshot(role);
  }
- snapshot(role){const g=this.games[role],s=JSON.parse(JSON.stringify(g.s)),other=role==='A'?'B':'A';if(!s.flags.validated){s.observations[other]=[];s.evidence=[...s.observations[role]];}s.match={A:this.votes.A||null,B:this.votes.B||null};s.net={checkpoints:this.checkpoints.map(({id,label,time})=>({id,label,time})),loadRequest:this.loadRequest,timeline:this.timeline,room:this.id,revision:this.revision,joined:!!this.members[other],partnerRole:other,ready:this.ready,decision:this.decisions[s.event+':'+s.index],partnerCount:this.shared.observations[other].length,partnerVote:s.view==='deduce'?this.votes[other]:null};return s;}
+ snapshot(role){const g=this.games[role],s=JSON.parse(JSON.stringify(g.s)),other=role==='A'?'B':'A';if(!s.flags.validated){s.observations[other]=[];s.evidence=[...s.observations[role]];}s.match={A:this.votes.A||null,B:this.votes.B||null};s.campaign.found[other]=s.campaign.sharedNotes?s.campaign.found[other]:[];if(s.campaign.sharedNotes&&other==='B'&&s.flags['share:'+s.campaign.chapter]===false){const hidden=P.current(s).clues?.B.filter(c=>c.truth).map(c=>c.id)||[];s.campaign.found.B=s.campaign.found.B.filter(id=>!hidden.includes(id));}s.net={campaignPartnerCount:this.shared.campaign.found[other].length,checkpoints:this.checkpoints.map(({id,label,time})=>({id,label,time})),loadRequest:this.loadRequest,timeline:this.timeline,room:this.id,revision:this.revision,joined:!!this.members[other],partnerRole:other,ready:this.ready,decision:this.decisions[s.event+':'+s.index],partnerCount:this.shared.observations[other].length,partnerVote:s.view==='deduce'?this.votes[other]:null};return s;}
  serialize(){return {...this,games:Object.fromEntries(Object.entries(this.games).map(([r,g])=>[r,g.s]))};}
 }
 module.exports={Room};
