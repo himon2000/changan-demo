@@ -43,3 +43,29 @@ test('all new page states and chapter dialogs render for both roles',()=>{
 });
 
 test('a distrustful route organically unlocks dreamer without editing stats',()=>{const h=full((g,l)=>l.choices[1]&&!g.choiceLock(l.choices[1])?1:l.choices.findIndex(c=>!g.choiceLock(c)));assert.ok(h.r.shared.stats.TB<=25);assert.ok(h.r.shared.stats.DREAM>=60);h.cmd('A','finalSubmit',{id:'stay'});h.cmd('B','finalSubmit',{id:'erase'});assert.equal(h.r.shared.campaign.ending,'dreamer');});
+
+
+test('all 42 chapter clues are physical scene crops with reachable, distinct hit centres',()=>{
+ let count=0;
+ const context={};context.window=context;vm.createContext(context);
+ for(const file of ['campaign.js','campaign-ui.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../'+file),'utf8'),context);
+ for(const [chapter,ch]of Object.entries(C.chapters)){
+  if(!ch.clues)continue;
+  assert.ok(fs.existsSync(path.join(__dirname,'../assets/scenes/'+ch.scene+'.png')),chapter);
+  const {r,cmd}=harness();r.shared.campaign.chapter=chapter;
+  Object.assign(r.shared.stats,{TRUTH:100,EVIDENCE:10,TA:100,TB:100});r.shared.flags.oldMark=true;
+  for(const role of ['A','B']){
+   const g=r.games[role];g.s.view='chapterInvestigate';
+   for(const clue of ch.clues[role]){
+    count++;assert.equal(clue.painted,true);assert.equal(clue.scene,ch.scene);
+    assert.ok(clue.x-clue.w/2>=0&&clue.x+clue.w/2<=1,chapter+':'+clue.id+' horizontal bounds');
+    assert.ok(clue.y-clue.h/2>=0&&clue.y+clue.h/2<=1,chapter+':'+clue.id+' vertical bounds');
+    cmd(role,'chapterCollect',{x:clue.x,y:clue.y});assert.equal(g.s.insight.chapterClue,clue.id,chapter+':'+clue.id);
+    const html=context.CAMPAIGN_UI.page(g.s,g);
+    assert.ok(!html.includes('chapter-object')&&!html.includes('<svg'),chapter+': no sticker layer');
+    assert.ok(html.includes('painted-preview')&&html.includes(ch.scene+'.png'),chapter+': same scene evidence crop');
+   }
+  }
+ }
+ assert.equal(count,42);
+});

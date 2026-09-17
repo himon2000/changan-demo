@@ -1,7 +1,7 @@
 (()=>{
 'use strict';
 const P=window.CAMPAIGN,U=window.CAMPAIGN_UI,D=window.GAME_DATA,app=document.getElementById('app'),SAVE='changan-demo-online-v3';
-let connection=null,events=null,pollTimer=null,pollGeneration=0,transport=null,clockOffset=0,selectedRole=null,busy=false,online=false,hostUrls=[],game=new Game(),modal=null,pan=0,panScene='',drag=null,toastTimer=null,frame=0,qteRemaining=0,qteStamp=0,qteLock=false,stepToken='',flash='',lastFocus=null;
+let connection=null,events=null,pollTimer=null,pollGeneration=0,transport=null,clockOffset=0,selectedRole=null,busy=false,online=false,hostUrls=[],game=new Game(),modal=null,pan=0,panScene='',sceneUIHidden=false,drag=null,toastTimer=null,frame=0,qteRemaining=0,qteStamp=0,qteLock=false,stepToken='',flash='',lastFocus=null;
 const s=()=>game.s;
 const sceneImage=id=>'assets/scenes/'+id+'.png';
 const poseImage=(who,pose='idle')=>{
@@ -32,7 +32,7 @@ function effectToast(before){const d={};for(const k in s().stats){let n=s().stat
 function particles(){return '<div class="particles">'+Array.from({length:15},(_,i)=>`<i style="left:${(i*23+5)%100}%;top:${(i*17+25)%95}%;animation-delay:${i*.6}s"></i>`).join('')+'</div>'}
 function bg(id,cls=''){return `<div class="backdrop ${cls}" style="background-image:url('${sceneImage(id)}')"></div><div class="vignette"></div>${particles()}`}
 function header(){return `<header class="topbar"><div class="brand">未·央<small>双人叙事解谜 · 完整篇</small></div>${s().view!=='start'?`<span class="role-tag">${roleName(s().role)} · 身份固定 ${s().net?' · '+s().net.room+' · '+(s().net.peerOnline?'搭档在线':'等待搭档连接'):''}</span>`:''}<nav class="nav">${s().view!=='start'?'<button data-action="notebook">案卷</button><button data-action="progress">双人进度</button><button data-action="checkpoints">存档</button>':''}<button data-action="settings">设置</button><button data-action="help">玩法</button></nav></header>`}
-function shell(body,cls=''){app.innerHTML=`<main class="${cls}">${body}${header()}<div class="grain"></div></main>${modal?modalHTML():''}`;initPanorama();if(s().view==='qte'&&!s().waiting)startClock();if(modal){const focusable=app.querySelector('.modal button');focusable?.focus();}save();}
+function shell(body,cls=''){app.innerHTML=`<main class="${cls}${s().view==='chapterInvestigate'&&sceneUIHidden?' scene-unobstructed':''}">${body}${header()}<div class="grain"></div></main>${modal?modalHTML():''}`;initPanorama();const sceneToggle=app.querySelector('.scene-visibility');if(sceneToggle)sceneToggle.textContent=sceneUIHidden?'恢复界面 · H':'净览画面 · H';if(s().view==='qte'&&!s().waiting)startClock();if(modal){const focusable=app.querySelector('.modal button');focusable?.focus();}save();}
 function render(){cancelAnimationFrame(frame);if(['chapterInvestigate','chapterPuzzle','chapterVerdict','chapterDrum','finalChoice','campaignEnd'].includes(s().view)&&!s().waiting){if(s().view==='chapterInvestigate'&&panScene!==s().campaign.chapter+s().role){panScene=s().campaign.chapter+s().role;pan=0;}shell(U.page(s(),game),'campaign-page');initFragments();return;}if(s().waiting&&s().view!=='deduce')return renderWaiting();const views={lobby:renderLobby,start:renderStart,map:renderMap,dialog:renderDialog,investigate:renderInvestigate,match:renderMatch,qteReady:renderQte,qte:renderQte,deduce:renderDeduce,end:renderEnd};(views[s().view]||renderStart)();}
 function renderStart(){shell(`${bg('lake')}<div class="start-content"><div class="start-copy"><span class="seal">序 · 入长安</span><div class="eyebrow">今夜，你从谁的眼中看长安</div><h1>未·央</h1><h2>长安九章 · 双影同行</h2><p>从东市追镜，到曲江沉月。<br>循着八起案件留下的痕迹，走进万象长安。<br>你的选择，决定搭档还有哪些路可走。</p>${readSave()?'<button class="btn resume" data-action="resume">重连原房间</button>':''}</div><div class="role-cards">${['A','B'].map(r=>`<button class="role-card ${selectedRole===r?'selected':''}" data-role="${r}" aria-label="选择${roleName(r)}"><img src="assets/cutouts-complete/${r.toLowerCase()}.png" alt="${roleName(r)}"><div class="role-card-copy"><span>${r==='A'?'大理寺':'幻术院'}</span><h3>${roleName(r)}</h3><span>${D.roles[r].subtitle}</span><b>以此身份入长安　↗</b></div></button>`).join('')}</div></div>${selectedRole?`<div class="room-actions"><strong>已选择${roleName(selectedRole)}</strong><button class="btn primary" data-action="createRoom">创建双人房间</button><input id="roomCode" maxlength="8" placeholder="房间码" aria-label="房间码" value="${new URLSearchParams(location.search).get('room')?.replace(/[^A-Z0-9]/gi,'').slice(0,8)||''}"><button class="btn" data-action="joinRoom">加入搭档</button></div>`:''}<div class="start-footer">${location.protocol==='file:'?'请先双击项目中的「启动联机.command」，再从联机地址进入':'双人真人联机 · 身份选定后固定 · 独立调查 · 关键节点双方验证'}</div>`)}
 function recommended(){if(s().campaign?.chapter!=='qujiang'){const ch=P.current(s());return s().campaign.found[s().role].length>=2&&!s().campaign.witness[s().role]?ch.witness:ch.site;}if(!s().flags.murder||!s().flags['cabin'+s().role])return 'boat';if(s().role==='A'&&!s().flags.witness)return 'shrine';if(s().role==='B'&&!s().flags.workshop)return 'academy';return game.readyToMeet()?'boat':null;}
@@ -103,6 +103,7 @@ app.addEventListener('click',e=>{
  case 'fragmentSubmit':send({type:'chapterPuzzle',answer:[...document.querySelectorAll('#fragments [data-fragment]')].map(x=>x.dataset.fragment).join(',')});break;
  case 'meet':send({type:'location',id:'boat'});break;
  case 'finishInvest':send({type:'finishInvest'});break;
+ case 'toggleSceneUI':sceneUIHidden=!sceneUIHidden;render();break;
  case 'dismissInsight':s().insight=null;render();break;
  case 'panLeft':pan=Math.max(0,pan-.15);layoutPan();break;
  case 'panRight':pan=Math.min(1,pan+.15);layoutPan();break;
@@ -111,6 +112,7 @@ app.addEventListener('click',e=>{
  case 'submit':send({type:'submit'});break;
  }
 });
+document.addEventListener('keydown',e=>{if(s().view==='chapterInvestigate'&&!modal&&!e.repeat&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&e.key?.toLowerCase()==='h'&&!['INPUT','TEXTAREA','SELECT'].includes(e.target?.tagName)){e.preventDefault();sceneUIHidden=!sceneUIHidden;render();}});
 app.addEventListener('input',e=>{if(e.target.id==='panRange'){pan=+e.target.value/1000;layoutPan();}});
 app.addEventListener('change',e=>{if(e.target.dataset.setting){if(connection)send({type:'setting',key:e.target.dataset.setting,value:e.target.checked});else{s()[e.target.dataset.setting]=e.target.checked;render();}}});
 document.addEventListener('keydown',e=>{
